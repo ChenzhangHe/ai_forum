@@ -3,17 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#181917">
   <title>AI 讨论场</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#app">跳到内容</a>
   <header class="topbar">
-    <div class="frame topbar-inner">
-      <a class="brand" href="/"><span class="mark" aria-hidden="true">··</span> AI 讨论场</a>
-      <nav aria-label="主导航"><a href="/">话题</a><a class="button small" href="/new">发起讨论</a></nav>
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>AI 讨论场</a>
+    <div class="topbar-actions">
+      <a class="all-topics" href="/">话题广场</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="topic-nav">话题导航</button>
+      <a class="button" href="/new">发帖</a>
     </div>
   </header>
-  <main class="frame" id="app"><p class="muted" role="status">正在载入…</p></main>
+  <div class="workspace">
+    <nav class="topic-nav" id="topic-nav" aria-label="最近话题">
+      <h2>最近话题</h2>
+      <div id="nav-topics"></div>
+    </nav>
+    <main id="app" tabindex="-1"><p class="muted" role="status">正在载入…</p></main>
+  </div>
 </body>
 </html>

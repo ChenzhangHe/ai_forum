@@ -40,23 +40,60 @@ function displayDate(value) {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
+const topicNav = document.querySelector('#topic-nav');
+const navTopics = document.querySelector('#nav-topics');
+const navToggle = document.querySelector('.nav-toggle');
+
+function setNavOpen(open) {
+  navToggle.setAttribute('aria-expanded', String(open));
+  topicNav.classList.toggle('is-open', open);
+}
+
+navToggle.addEventListener('click', () => {
+  setNavOpen(navToggle.getAttribute('aria-expanded') !== 'true');
+});
+topicNav.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && navToggle.getAttribute('aria-expanded') === 'true') {
+    setNavOpen(false);
+    navToggle.focus();
+  }
+});
+
+function replyCount(topic) {
+  return (topic.postCount ?? topic.posts.length) + ' 条回复';
+}
+
+function navSummary(topic) {
+  return replyCount(topic) + ' · ' + status(topic);
+}
+
+function renderNav(topics, currentPath) {
+  if (!topics.length) navTopics.append(element('p', 'nav-meta', '还没有帖子'));
+  for (const topic of topics.slice(0, 12)) {
+    const path = '/topics/' + topic.id;
+    const row = link(path, '', 'nav-topic');
+    if (path === currentPath) row.setAttribute('aria-current', 'page');
+    row.append(element('span', 'nav-title', topic.title), element('span', 'nav-meta', navSummary(topic)));
+    navTopics.append(row);
+  }
+}
+
 function listPage(topics) {
-  const intro = element('section', 'masthead');
-  intro.append(element('p', 'eyebrow', '开放讨论'), element('h1', '', '话题广场'),
+  const intro = element('header', 'masthead');
+  intro.append(element('h1', '', '话题广场'),
     element('p', 'intro', '人类出题，AI 参与者自行决定是否发言。'));
   const list = element('section', 'topic-list');
   list.setAttribute('aria-label', '公开话题');
   if (!topics.length) {
-    const empty = element('div', 'panel empty');
-    empty.append(element('h2', '', '还没有话题'), element('p', 'muted', '发起一个题目，邀请不同的 AI 参与者展开讨论。'),
-      link('/new', '发起讨论', 'button'));
+    const empty = element('div', 'empty');
+    empty.append(element('h2', '', '还没有话题'), link('/new', '发布第一个话题', 'button'));
     list.append(empty);
   }
   for (const topic of topics) {
     const row = link('/topics/' + topic.id, '', 'topic-row');
     const body = element('div');
     body.append(element('h2', '', topic.title),
-      element('p', 'muted', topic.roles.map((role) => role.name).join('、') + ' · ' + topic.postCount + ' 条留言' + (topic.mode === 'demo' ? ' · 演示' : '')));
+      element('p', 'meta', replyCount(topic) + ' · ' + displayDate(topic.createdAt) + (topic.mode === 'demo' ? ' · 演示' : '')));
     row.append(body, badge(topic));
     list.append(row);
   }
@@ -72,10 +109,9 @@ function field(label, control, hint) {
 
 function composePage(config) {
   document.title = '发起讨论 · AI 讨论场';
-  const intro = element('section', 'masthead compact');
-  intro.append(link('/', '返回话题广场', 'back'), element('h1', '', '发起讨论'),
-    element('p', 'intro', '写下题目，选择参与人数。'));
-  const form = element('form', 'panel compose');
+  const intro = element('header', 'masthead');
+  intro.append(element('h1', '', '发起讨论'));
+  const form = element('form', 'compose');
   const title = element('input');
   Object.assign(title, { required: true, maxLength: 160, placeholder: '例如：远程团队要不要取消每日站会？' });
   const context = element('textarea');
@@ -145,11 +181,12 @@ function postCard(post, postsById, roles) {
   const header = element('header', 'post-head');
   header.append(element('span', 'avatar ' + role.id, role.initials),
     element('strong', '', role.name),
+    element('span', 'meta', '第 ' + post.round + ' 轮'),
     link('#' + article.id, '链接', 'permalink'));
   article.append(header);
   if (post.replyTo) {
     const parent = postsById.get(post.replyTo);
-    article.append(link('#post-' + parent.id, '回复 ' + roles.get(parent.roleId).name + ' · 第 ' + parent.round + ' 轮', 'reply'));
+    article.append(link('#post-' + parent.id, '回复 ' + roles.get(parent.roleId).name, 'reply'));
   }
   article.append(element('p', 'post-text', post.text));
   return article;
@@ -157,55 +194,77 @@ function postCard(post, postsById, roles) {
 
 function topicPage(topic) {
   document.title = topic.title + ' · AI 讨论场';
-  const intro = element('section', 'masthead compact');
-  intro.append(link('/', '开放讨论', 'back'), element('h1', '', topic.title));
-  if (topic.context) intro.append(element('p', 'intro context', topic.context));
-  const details = element('p', 'detail');
-  details.append(badge(topic), element('span', 'muted', displayDate(topic.createdAt)));
-  intro.append(details);
-  const layout = element('div', 'discussion');
+
+  const opening = element('header', 'masthead original-post');
+  opening.append(element('p', 'meta', '原帖 · ' + displayDate(topic.createdAt)),
+    element('h1', '', topic.title));
+  if (topic.context) opening.append(element('p', 'intro context', topic.context));
+
   const thread = element('section', 'thread');
-  thread.setAttribute('aria-label', '讨论留言');
-  const roles = new Map(topic.roles.map((role) => [role.id, role]));
-  const posts = new Map(topic.posts.map((post) => [post.id, post]));
-  let currentRound;
-  for (const post of topic.posts) {
-    if (post.round !== currentRound) {
-      currentRound = post.round;
-      thread.append(element('h2', 'round-label', '第 ' + currentRound + ' 轮'));
-    }
-    thread.append(postCard(post, posts, roles));
-  }
-  const messages = {
-    quiet: '第 ' + topic.rounds + ' 轮没有新留言，讨论已结束。',
-    limit: '已达到 ' + topic.maxRounds + ' 轮，讨论已结束。',
-    model_error: '模型请求或输出有误，讨论已中断。此前发布的留言仍可查看。'
-  };
-  const activity = element('p', 'activity', topic.status === 'running'
-    ? '参与者正在考虑第 ' + (topic.rounds + 1) + ' 轮是否发言…'
-    : messages[topic.reason]);
+  const replyHeading = element('h2');
+  const entries = element('div', 'replies');
+  const empty = element('p', 'muted empty-replies', '还没有回复');
+  thread.setAttribute('aria-label', '讨论回复');
+  thread.append(replyHeading, empty, entries);
+
+  const sidebar = element('aside', 'discussion-sidebar');
+  const progress = element('section', 'discussion-progress');
+  const state = badge(topic);
+  const activity = element('p', 'activity');
   activity.setAttribute('role', 'status');
-  thread.append(activity);
-  const sidebar = element('aside', 'panel sidebar');
-  sidebar.append(element('h2', '', '参与者'));
+  progress.append(element('h2', '', '讨论进度'), state, activity);
+  sidebar.append(progress);
+
+  const members = element('details', 'participants');
+  members.open = !matchMedia('(max-width: 900px)').matches;
+  members.append(element('summary', '', '参与者 · ' + topic.roles.length));
   for (const role of topic.roles) {
     const name = element('div', 'sidebar-role');
     name.append(element('span', 'avatar ' + role.id, role.initials), element('strong', '', role.name));
-    sidebar.append(name);
+    members.append(name);
   }
-  sidebar.append(modeNote(topic.mode));
+  sidebar.append(members);
+  if (topic.mode === 'demo') sidebar.append(modeNote(topic.mode));
+
+  const layout = element('div', 'discussion');
   layout.append(thread, sidebar);
-  app.replaceChildren(intro, layout);
+  app.replaceChildren(opening, layout);
+
+  const roles = new Map(topic.roles.map((role) => [role.id, role]));
+  let renderedPosts = 0;
+  return (updated) => {
+    replyHeading.textContent = replyCount(updated);
+    empty.hidden = updated.posts.length > 0;
+    const postsById = new Map(updated.posts.map((post) => [post.id, post]));
+    for (const post of updated.posts.slice(renderedPosts)) {
+      entries.append(postCard(post, postsById, roles));
+    }
+    renderedPosts = updated.posts.length;
+    state.className = 'badge ' + updated.status;
+    state.textContent = status(updated);
+    const messages = {
+      quiet: '第 ' + updated.rounds + ' 轮无人发言。',
+      limit: '已达到 ' + updated.maxRounds + ' 轮。',
+      model_error: '模型请求或输出有误，已发布的回复仍可查看。'
+    };
+    activity.textContent = updated.status === 'running'
+      ? '正在进行第 ' + (updated.rounds + 1) + ' 轮'
+      : messages[updated.reason];
+    const activeMeta = navTopics.querySelector('[aria-current="page"] .nav-meta');
+    if (activeMeta) activeMeta.textContent = navSummary(updated);
+  };
 }
 
 async function watchTopic(path) {
+  let update;
   let version;
   async function refresh() {
     try {
       const topic = await request('/api' + path);
       const next = topic.rounds + ':' + topic.status;
       if (next !== version) {
-        topicPage(topic);
+        update ??= topicPage(topic);
+        update(topic);
         if (version === undefined && location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
         version = next;
       }
@@ -222,11 +281,16 @@ function showError(error) {
   app.replaceChildren(element('h1', '', error.message), link('/', '返回话题广场', 'back'));
 }
 
+const path = location.pathname;
+const topics = request('/api/topics');
+void topics.then((entries) => renderNav(entries, path), () => {
+  navTopics.append(element('p', 'nav-meta', '暂时无法载入话题'));
+});
+
 try {
-  const path = location.pathname;
   if (path === '/new') composePage(await request('/api/config'));
   else if (path.startsWith('/topics/')) await watchTopic(path);
-  else listPage(await request('/api/topics'));
+  else listPage(await topics);
 } catch (error) {
   showError(error);
 }

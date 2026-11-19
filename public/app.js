@@ -82,12 +82,28 @@ function composePage(config) {
   Object.assign(context, { maxLength: 4000, rows: 4, placeholder: '提供有助于判断的事实或限制。' });
   form.append(field('题目', title), field('背景（选填）', context));
   const count = element('select');
-  for (const number of [2, 3]) {
+  for (let number = config.minParticipants; number <= config.maxParticipants; number++) {
     const option = element('option', '', number + ' 位');
     option.value = String(number);
     count.append(option);
   }
   form.append(field('AI 参与人数', count));
+  const names = element('fieldset', 'participant-names');
+  names.append(element('legend', 'field-title', '参与者名字（选填）'));
+  const nameInputs = Array.from({ length: config.maxParticipants }, (_, index) => {
+    const input = element('input');
+    const defaultName = 'AI ' + (index + 1);
+    Object.assign(input, { maxLength: config.maxNameLength, placeholder: defaultName });
+    const label = field(defaultName, input);
+    names.append(label);
+    return { input, label };
+  });
+  function updateNames() {
+    nameInputs.forEach(({ label }, index) => { label.hidden = index >= Number(count.value); });
+  }
+  count.addEventListener('change', updateNames);
+  updateNames();
+  form.append(names);
   const key = element('input');
   Object.assign(key, { type: 'password', required: true, autocomplete: 'off' });
   if (config.requiresKey) form.append(field('主持人密钥', key));
@@ -106,8 +122,11 @@ function composePage(config) {
     try {
       const headers = { 'content-type': 'application/json' };
       if (config.requiresKey) headers.authorization = 'Bearer ' + key.value;
+      const participantCount = Number(count.value);
+      const participantNames = nameInputs.slice(0, participantCount).map(({ input }) => input.value);
       const { id } = await request('/api/topics', {
-        method: 'POST', headers, body: JSON.stringify({ title: title.value, context: context.value, participantCount: Number(count.value) })
+        method: 'POST', headers,
+        body: JSON.stringify({ title: title.value, context: context.value, participantCount, participantNames })
       });
       location.assign('/topics/' + id);
     } catch (failure) {

@@ -49,6 +49,10 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .compose { max-width: 740px; padding: 24px; display: grid; gap: 18px; }
 .field { display: grid; gap: 8px; }
 .field-title { font-weight: 700; }
+.participant-names { border: 0; padding: 0; margin: 0; min-inline-size: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 10px; }
+.participant-names legend { padding: 0; margin-bottom: 10px; }
+.participant-names label .field-title { color: var(--muted); font-size: 0.9rem; }
+.post-head strong, .sidebar-role strong { overflow-wrap: anywhere; min-width: 0; }
 input, textarea, select { width: 100%; border: 1px solid #a8b9d0; border-radius: 8px; background: white; padding: 10px 12px; color: var(--ink); }
 textarea { resize: vertical; }
 .compose p { margin: 0; }

@@ -6,6 +6,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { decide, mode } from './model.mjs';
 
 const MAX_ROUNDS = 100;
+const MIN_PARTICIPANTS = 2;
+const MAX_PARTICIPANTS = 10;
+const MAX_NAME_LENGTH = 24;
+const ROUND_CONCURRENCY = 3;
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 3000);
 const adminKey = process.env.FORUM_ADMIN_KEY || '';
@@ -97,11 +101,16 @@ async function processQueue() {
       try {
         const round = topic.rounds + 1;
         const posts = recentPosts.all(topic.id, Math.max(1, round - 8));
-        const decisions = await Promise.allSettled(topic.roles.map((role) => decide(topic, role, round, posts)));
-        const newPosts = decisions.map((decision, index) => {
-          if (decision.status === 'rejected') throw decision.reason;
-          return resultToPost(decision.value, topic.roles[index], topic);
-        }).filter(Boolean);
+        const newPosts = [];
+        for (let offset = 0; offset < topic.roles.length; offset += ROUND_CONCURRENCY) {
+          const batch = topic.roles.slice(offset, offset + ROUND_CONCURRENCY);
+          const decisions = await Promise.allSettled(batch.map((role) => decide(topic, role, round, posts)));
+          for (const [index, decision] of decisions.entries()) {
+            if (decision.status === 'rejected') throw decision.reason;
+            const post = resultToPost(decision.value, batch[index], topic);
+            if (post) newPosts.push(post);
+          }
+        }
         commitRound(topic, round, newPosts);
       } catch (error) {
         console.error('Discussion failed:', topic.id, error.message);
@@ -157,13 +166,26 @@ function createTopic(input) {
   if (!title || title.length > 160 || context.length > 4000) {
     throw new HttpError(400, '请输入 1–160 字的题目，背景最多 4000 字。');
   }
-  const { participantCount } = input;
-  if (!Number.isInteger(participantCount) || participantCount < 2 || participantCount > 3) {
-    throw new HttpError(400, '请选择 2 或 3 位 AI 参与者。');
+  const { participantCount, participantNames } = input;
+  if (!Number.isInteger(participantCount) || participantCount < MIN_PARTICIPANTS || participantCount > MAX_PARTICIPANTS) {
+    throw new HttpError(400, '请选择 ' + MIN_PARTICIPANTS + '–' + MAX_PARTICIPANTS + ' 位 AI 参与者。');
   }
-  const roles = Array.from({ length: participantCount }, (_, index) => ({
-    id: 'ai-' + (index + 1), name: 'AI ' + (index + 1), initials: String(index + 1)
-  }));
+  if (participantNames !== undefined && (!Array.isArray(participantNames) ||
+      participantNames.length !== participantCount ||
+      participantNames.some((name) => typeof name !== 'string' || name.trim().length > MAX_NAME_LENGTH || /[\r\n]/.test(name)))) {
+    throw new HttpError(400, '名字最多 ' + MAX_NAME_LENGTH + ' 个字符，并且必须与参与人数对应。');
+  }
+  const roles = Array.from({ length: participantCount }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: 'ai-' + number,
+      name: participantNames?.[index].trim() || 'AI ' + number,
+      initials: String(number)
+    };
+  });
+  if (new Set(roles.map(({ name }) => name.normalize('NFKC').toLowerCase())).size !== roles.length) {
+    throw new HttpError(400, '同一帖子里的 AI 名字不能重复。');
+  }
   const id = randomUUID();
   db.prepare('INSERT INTO topics (id, title, context, roles, mode, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id, title, context, JSON.stringify(roles), mode, new Date().toISOString());
@@ -194,7 +216,13 @@ const server = createServer(async (req, res) => {
         const topic = path.match(topicRoute);
         return send(res, topic && !topicById.get(topic[1]) ? 404 : 200, 'text/html; charset=utf-8', page);
       }
-      if (path === '/api/config') return json(res, 200, { mode, maxRounds: MAX_ROUNDS, requiresKey: !!adminKey });
+      if (path === '/api/config') {
+        return json(res, 200, {
+          mode, maxRounds: MAX_ROUNDS, requiresKey: !!adminKey,
+          minParticipants: MIN_PARTICIPANTS, maxParticipants: MAX_PARTICIPANTS,
+          maxNameLength: MAX_NAME_LENGTH
+        });
+      }
       if (path === '/api/topics') {
         const topics = db.prepare(`
           SELECT topics.*, (SELECT count(*) FROM posts WHERE topic_id = topics.id) AS postCount
